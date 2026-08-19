@@ -1,0 +1,26 @@
+[package]
+name = "psqlx"
+version = "0.1.0"
+edition = "2021"
+description = "Policy-guarded Postgres CLI. Named connections, managed SSH tunnels, read-only by default."
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["clock"] }
+clap = { version = "4", features = ["derive", "wrap_help"] }
+dirs = "5"
+keyring = { version = "3", features = ["apple-native"] }
+native-tls = "0.2"
+postgres-native-tls = "0.5"
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "process", "io-util"] }
+tokio-postgres = "0.7"
+toml = "0.8"
+unicode-width = "0.2"
+url = "2"
+
+[profile.release]
+opt-level = 2
+strip = true
