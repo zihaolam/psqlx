@@ -218,7 +218,7 @@ fn check_one(stmt: &Statement, policy: &Policy) -> Result<StmtPlan> {
     // --- checks that apply regardless of verb --------------------------
     if policy.mode != Mode::Unrestricted {
         for f in stmt.called_functions() {
-            if DENIED_FUNCTIONS.contains(&f) {
+            if DENIED_FUNCTIONS.contains(&f.as_str()) {
                 bail!(
                     "blocked: `{f}()` is on the denied-function list — it can read the filesystem, \
                      open a second connection, or stall the server, all of which escape the \
@@ -436,6 +436,25 @@ mod tests {
             "select dblink('...','insert into t values(1)')",
             "select lo_export(1,'/tmp/x')",
             "select set_config('search_path','x',false)",
+        ] {
+            assert!(check(sql, &ro()).is_err(), "should block: {sql}");
+        }
+    }
+
+    /// Quoting a function name does not change which function Postgres calls,
+    /// so `"dblink"(...)` must be rejected exactly like `dblink(...)`. This is
+    /// the parser bypass a pen test found: `called_functions()` used to look at
+    /// bare words only, letting a quoted name reach the server — where `dblink`
+    /// opens a second connection outside the read-only transaction and writes.
+    #[test]
+    fn blocks_dangerous_functions_even_when_quoted() {
+        for sql in [
+            r#"select "dblink"('conn','insert into t values(1)')"#,
+            r#"select "pg_read_file"('/etc/passwd')"#,
+            r#"select "pg_ls_dir"('/')"#,
+            r#"select "set_config"('default_transaction_read_only','off',false)"#,
+            r#"select "pg_sleep"(3600)"#,
+            r#"select "lo_export"(1,'/tmp/x')"#,
         ] {
             assert!(check(sql, &ro()).is_err(), "should block: {sql}");
         }
