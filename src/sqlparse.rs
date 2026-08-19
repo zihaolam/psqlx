@@ -45,12 +45,23 @@ impl Statement {
             .any(|t| matches!(t, Tok::Word(w) if w == needle))
     }
 
-    /// Bare words that are immediately followed by `(` — i.e. function calls.
-    pub fn called_functions(&self) -> Vec<&str> {
+    /// Identifiers immediately followed by `(` — i.e. function calls, lowercased.
+    ///
+    /// Both bare words *and* quoted identifiers count: PostgreSQL folds an
+    /// unquoted name to lower case and treats `"dblink"(...)` as the very same
+    /// function as `dblink(...)`. If we only looked at bare words, quoting the
+    /// name — `select "dblink"(...)`, `select "pg_read_file"(...)` — would slip
+    /// the call straight past the denied-function list. We lower-case the quoted
+    /// form too so the match is fail-closed, exactly as `identifiers()` does.
+    pub fn called_functions(&self) -> Vec<String> {
         let mut out = Vec::new();
         for pair in self.toks.windows(2) {
-            if let (Tok::Word(w), Tok::Punct('(')) = (&pair[0], &pair[1]) {
-                out.push(w.as_str());
+            if let Tok::Punct('(') = pair[1] {
+                match &pair[0] {
+                    Tok::Word(w) => out.push(w.clone()),
+                    Tok::QuotedIdent(w) => out.push(w.to_ascii_lowercase()),
+                    _ => {}
+                }
             }
         }
         out
@@ -406,8 +417,18 @@ mod tests {
     fn detects_function_calls() {
         let s = &split("select pg_sleep(10), now()").unwrap()[0];
         let f = s.called_functions();
-        assert!(f.contains(&"pg_sleep"));
-        assert!(f.contains(&"now"));
+        assert!(f.iter().any(|w| w == "pg_sleep"));
+        assert!(f.iter().any(|w| w == "now"));
+    }
+
+    #[test]
+    fn quoted_function_names_are_still_calls() {
+        // PostgreSQL treats "dblink"(...) as the same function as dblink(...),
+        // so a quoted name must not slip past the denied-function check.
+        let s = &split(r#"select "dblink"('a','b'), "PG_SLEEP"(1)"#).unwrap()[0];
+        let f = s.called_functions();
+        assert!(f.iter().any(|w| w == "dblink"));
+        assert!(f.iter().any(|w| w == "pg_sleep"));
     }
 
     #[test]
